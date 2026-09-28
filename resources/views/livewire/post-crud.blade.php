@@ -1,87 +1,90 @@
 <?php
 
-use function Livewire\Volt\{state, usesFileUploads, rules};
+use function Livewire\Volt\{classWith};
+use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 use App\Models\Post;
 use Illuminate\Support\Facades\Storage;
 
-// Enable file uploads trait functionality in Volt
-usesFileUploads();
+// Using the clean inline-class style binds $this flawlessly
+new class extends Component {
+    use WithFileUploads;
 
-// Define states
-state([
-    'posts' => fn() => Post::latest()->get(),
-    'title' => '',
-    'description' => '',
-    'image' => null,
-    'old_image' => null,
-    'post_id' => null,
-    'isEdit' => false
-]);
+    public $title = '';
+    public $description = '';
+    public $image = null;
+    public $old_image = null;
+    public $post_id = null;
+    public $isEdit = false;
 
-// Handle resetting fields
-$resetFields = function () {
-    $this->title = '';
-    $this->description = '';
-    $this->image = null;
-    $this->old_image = null;
-    $this->post_id = null;
-    $this->isEdit = false;
-};
+    // Fetch the list of posts dynamically
+    public function with()
+    {
+        return [
+            'posts' => Post::latest()->get(),
+        ];
+    }
 
-// Store or Update implementation
-$store = function () use ($resetFields) {
-    // Dynamic validation rules based on creating vs editing
-    $rules = [
-        'title' => 'required|string|min:3',
-        'description' => 'required|string',
-        'image' => $this->isEdit ? 'nullable|image|max:2048' : 'required|image|max:2048',
-    ];
+    public function resetFields()
+    {
+        $this->title = '';
+        $this->description = '';
+        $this->image = null;
+        $this->old_image = null;
+        $this->post_id = null;
+        $this->isEdit = false;
+    }
 
-    $this->validate($rules);
+    public function store()
+    {
+        $rules = [
+            'title' => 'required|string|min:3',
+            'description' => 'required|string',
+            'image' => $this->isEdit ? 'nullable|image|max:2048' : 'required|image|max:2048',
+        ];
 
-    $imagePath = $this->old_image;
+        $this->validate($rules);
 
-    if ($this->image) {
-        // Delete old image if it exists
-        if ($this->old_image && Storage::disk('public')->exists($this->old_image)) {
-            Storage::disk('public')->delete($this->old_image);
+        $imagePath = $this->old_image;
+
+        if ($this->image) {
+            if ($this->old_image && Storage::disk('public')->exists($this->old_image)) {
+                Storage::disk('public')->delete($this->old_image);
+            }
+            $imagePath = $this->image->store('posts', 'public');
         }
-        $imagePath = $this->image->store('posts', 'public');
+
+        Post::updateOrCreate(['id' => $this->post_id], [
+            'title' => $this->title,
+            'description' => $this->description,
+            'image' => $imagePath,
+        ]);
+
+        session()->flash('message', $this->post_id ? 'Post Updated Successfully.' : 'Post Created Successfully.');
+
+        $this->resetFields();
     }
 
-    Post::updateOrCreate(['id' => $this->post_id], [
-        'title' => $this->title,
-        'description' => $this->description,
-        'image' => $imagePath,
-    ]);
-
-    session()->flash('message', $this->post_id ? 'Post Updated Successfully.' : 'Post Created Successfully.');
-
-    // Refresh posts dataset and clear inputs
-    $this->posts = Post::latest()->get();
-    $resetFields();
-};
-
-// Edit state loader
-$edit = function ($id) {
-    $post = Post::findOrFail($id);
-    $this->post_id = $post->id;
-    $this->title = $post->title;
-    $this->description = $post->description;
-    $this->old_image = $post->image;
-    $this->isEdit = true;
-};
-
-// Delete record action
-$delete = function ($id) {
-    $post = Post::findOrFail($id);
-    if ($post->image && Storage::disk('public')->exists($post->image)) {
-        Storage::disk('public')->delete($post->image);
+    public function edit($id)
+    {
+        $post = Post::findOrFail($id);
+        $this->post_id = $post->id;
+        $this->title = $post->title;
+        $this->description = $post->description;
+        $this->old_image = $post->image;
+        $this->isEdit = true;
     }
-    $post->delete();
 
-    session()->flash('message', 'Post Deleted Successfully.');
-    $this->posts = Post::latest()->get();
+    public function delete($id)
+    {
+        $post = Post::findOrFail($id);
+        if ($post->image && Storage::disk('public')->exists($post->image)) {
+            Storage::disk('public')->delete($post->image);
+        }
+        $post->delete();
+
+        session()->flash('message', 'Post Deleted Successfully.');
+    }
 };
 
 ?>
@@ -120,7 +123,6 @@ $delete = function ($id) {
 
                         <div class="mb-3">
                             <label class="form-label">Image</label>
-                            <!-- Key attribute forces element reset after update -->
                             <input type="file" class="form-control @error('image') is-invalid @enderror" wire:model="image" key="{{ $post_id }}">
                             @error('image') <div class="invalid-feedback">{{ $message }}</div> @enderror
 
